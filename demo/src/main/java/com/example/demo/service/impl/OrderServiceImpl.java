@@ -1,0 +1,216 @@
+package com.example.demo.service.impl;
+
+import com.example.demo.dto.request.OrderCreateRequest;
+import com.example.demo.dto.response.OrderDetailResponse;
+import com.example.demo.dto.response.OrderItemResponse;
+import com.example.demo.dto.response.OrderResponse;
+import com.example.demo.dto.response.PageResponse;
+import com.example.demo.entity.cart.Cart;
+import com.example.demo.entity.cart.CartItem;
+import com.example.demo.entity.order.Order;
+import com.example.demo.entity.order.OrderItem;
+import com.example.demo.entity.order.OrderStatus;
+import com.example.demo.entity.product.Product;
+import com.example.demo.entity.user.User;
+import com.example.demo.exception.BadRequestException;
+import com.example.demo.exception.ResourceNotFoundException;
+import com.example.demo.repository.CartItemRepository;
+import com.example.demo.repository.CartRepository;
+import com.example.demo.repository.OrderItemRepository;
+import com.example.demo.repository.OrderRepository;
+import com.example.demo.repository.ProductRepository;
+import com.example.demo.repository.UserRepository;
+import com.example.demo.security.SecurityUtils;
+import com.example.demo.service.OrderService;
+import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.math.BigDecimal;
+import java.util.List;
+import java.util.UUID;
+import java.util.stream.Collectors;
+
+@Service
+@RequiredArgsConstructor
+public class OrderServiceImpl implements OrderService {
+
+    private final OrderRepository orderRepository;
+    private final OrderItemRepository orderItemRepository;
+    private final CartRepository cartRepository;
+    private final CartItemRepository cartItemRepository;
+    private final UserRepository userRepository;
+    private final ProductRepository productRepository;
+
+    @Override
+    @Transactional
+    public OrderDetailResponse placeOrder(OrderCreateRequest request) {
+        Long userId = SecurityUtils.getCurrentUserId();
+        User user = userRepository.findById(userId).orElseThrow();
+        
+        Cart cart = cartRepository.findByUserId(userId)
+                .orElseThrow(() -> new BadRequestException("Cart is empty"));
+                
+        List<CartItem> cartItems = cartItemRepository.findByCartId(cart.getId());
+        if (cartItems.isEmpty()) {
+            throw new BadRequestException("Cart is empty");
+        }
+
+        BigDecimal totalAmount = BigDecimal.ZERO;
+        
+        // Prepare Order
+        Order order = new Order();
+        order.setOrderCode(UUID.randomUUID().toString().substring(0, 8).toUpperCase());
+        order.setUser(user);
+        order.setCustomerName(request.getCustomerName());
+        order.setCustomerPhone(request.getCustomerPhone());
+        order.setShippingAddress(request.getShippingAddress());
+        order.setStatus(OrderStatus.PENDING);
+        order.setTotalAmount(BigDecimal.ZERO); // <-- Avoids NOT NULL constraint
+
+        Order savedOrder = orderRepository.save(order);
+
+        // Process Items
+        for (CartItem cartItem : cartItems) {
+            Product product = cartItem.getProduct();
+            if (product.getStock() < cartItem.getQuantity()) {
+                throw new BadRequestException("Product " + product.getName() + " is out of stock.");
+            }
+            
+            // Decrease stock
+            product.setStock(product.getStock() - cartItem.getQuantity());
+            productRepository.save(product);
+            
+            // Create OrderItem
+            OrderItem orderItem = new OrderItem();
+            orderItem.setOrder(savedOrder);
+            orderItem.setProduct(product);
+            orderItem.setProductName(product.getName());
+            orderItem.setPrice(product.getPrice());
+            orderItem.setQuantity(cartItem.getQuantity());
+            
+            BigDecimal subtotal = product.getPrice().multiply(BigDecimal.valueOf(cartItem.getQuantity()));
+            orderItem.setSubtotal(subtotal);
+            orderItemRepository.save(orderItem);
+            
+            totalAmount = totalAmount.add(subtotal);
+        }
+        
+        savedOrder.setTotalAmount(totalAmount);
+        orderRepository.save(savedOrder);
+        
+        // Clear Cart
+        cartItemRepository.deleteByCartId(cart.getId());
+        
+        return getOrderDetails(savedOrder.getOrderCode());
+    }
+
+    @Override
+    public PageResponse<OrderResponse> getMyOrders(int page, int size) {
+        Long userId = SecurityUtils.getCurrentUserId();
+        Pageable pageable = PageRequest.of(Math.max(0, page), Math.min(size, 100), Sort.by("createdAt").descending());
+        
+        Page<Order> orderPage = orderRepository.findByUserId(userId, pageable);
+        List<OrderResponse> content = orderPage.getContent().stream().map(o -> {
+            OrderResponse res = new OrderResponse();
+            res.setId(o.getId());
+            res.setOrderCode(o.getOrderCode());
+            res.setStatus(o.getStatus().name());
+            res.setTotalAmount(o.getTotalAmount());
+            res.setCreatedAt(o.getCreatedAt());
+            return res;
+        }).collect(Collectors.toList());
+        
+        return new PageResponse<>(content, orderPage.getNumber(), orderPage.getSize(), 
+                orderPage.getTotalElements(), orderPage.getTotalPages());
+    }
+
+    @Override
+    public OrderDetailResponse getOrderDetails(String orderCode) {
+        Order order = orderRepository.findByOrderCode(orderCode)
+                .orElseThrow(() -> new ResourceNotFoundException("Order not found"));
+                
+        // Check permissions if not admin
+        Long userId = SecurityUtils.getCurrentUserId();
+        User currentUser = userRepository.findById(userId).orElseThrow();
+        if (!currentUser.getRole().name().equals("ADMIN") && !order.getUser().getId().equals(userId)) {
+            throw new ResourceNotFoundException("Order not found");
+        }
+        
+        return mapToDetailResponse(order);
+    }
+
+    @Override
+    public PageResponse<OrderDetailResponse> getAllOrders(int page, int size) {
+        Pageable pageable = PageRequest.of(Math.max(0, page), Math.min(size, 100), Sort.by("createdAt").descending());
+        Page<Order> orderPage = orderRepository.findAll(pageable);
+        
+        List<OrderDetailResponse> content = orderPage.getContent().stream()
+                .map(this::mapToDetailResponse)
+                .collect(Collectors.toList());
+                
+        return new PageResponse<>(content, orderPage.getNumber(), orderPage.getSize(), 
+                orderPage.getTotalElements(), orderPage.getTotalPages());
+    }
+
+    @Override
+    @Transactional
+    public OrderDetailResponse updateOrderStatus(String orderCode, String status) {
+        Order order = orderRepository.findByOrderCode(orderCode)
+                .orElseThrow(() -> new ResourceNotFoundException("Order not found"));
+        
+        OrderStatus newStatus;
+        try {
+            newStatus = OrderStatus.valueOf(status.toUpperCase());
+        } catch (IllegalArgumentException e) {
+            throw new BadRequestException("Invalid order status");
+        }
+        
+        if (order.getStatus() == newStatus) {
+            return mapToDetailResponse(order);
+        }
+        
+        if (newStatus == OrderStatus.CANCELLED) {
+            List<OrderItem> items = orderItemRepository.findByOrderId(order.getId());
+            for (OrderItem item : items) {
+                Product product = item.getProduct();
+                product.setStock(product.getStock() + item.getQuantity());
+                productRepository.save(product);
+            }
+        }
+        
+        order.setStatus(newStatus);
+        orderRepository.save(order);
+        return mapToDetailResponse(order);
+    }
+    
+    private OrderDetailResponse mapToDetailResponse(Order order) {
+        OrderDetailResponse res = new OrderDetailResponse();
+        res.setId(order.getId());
+        res.setOrderCode(order.getOrderCode());
+        res.setCustomerName(order.getCustomerName());
+        res.setCustomerPhone(order.getCustomerPhone());
+        res.setShippingAddress(order.getShippingAddress());
+        res.setStatus(order.getStatus().name());
+        res.setTotalAmount(order.getTotalAmount());
+        res.setCreatedAt(order.getCreatedAt());
+        
+        List<OrderItem> items = orderItemRepository.findByOrderId(order.getId());
+        List<OrderItemResponse> itemResponses = items.stream().map(i -> {
+            OrderItemResponse ir = new OrderItemResponse();
+            ir.setId(i.getId());
+            ir.setProductId(i.getProduct().getId());
+            ir.setProductName(i.getProductName());
+            ir.setQuantity(i.getQuantity());
+            ir.setPrice(i.getPrice());
+            return ir;
+        }).collect(Collectors.toList());
+        
+        res.setItems(itemResponses);
+        return res;
+    }
+}

@@ -1,0 +1,3 @@
+-- Baseline migration for Flyway.
+-- In development, schema is currently managed by spring.jpa.hibernate.ddl-auto=update.
+-- For production, replace this file with the actual mysqldump of the baseline schema.
