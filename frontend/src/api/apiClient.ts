@@ -29,10 +29,8 @@ apiClient.interceptors.response.use(
     if (error.response?.status === 401) {
       localStorage.removeItem('accessToken');
       localStorage.removeItem('user');
-      // Redirect to login if not already there
-      if (!window.location.pathname.startsWith('/login')) {
-        window.location.href = '/login';
-      }
+      // Dispatch custom event so React can update state instead of hard reloading
+      window.dispatchEvent(new Event('auth:unauthorized'));
     }
     return Promise.reject(error);
   }
