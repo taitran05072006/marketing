@@ -15,11 +15,15 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 import java.util.stream.Collectors;
 
+import com.example.demo.event.ContentChangedEvent;
+import org.springframework.context.ApplicationEventPublisher;
+
 @Service
 @RequiredArgsConstructor
 public class ProductCategoryServiceImpl implements ProductCategoryService {
 
     private final ProductCategoryRepository repository;
+    private final ApplicationEventPublisher eventPublisher;
 
     @Override
     public List<ProductCategoryResponse> getAllCategories() {
@@ -50,21 +54,27 @@ public class ProductCategoryServiceImpl implements ProductCategoryService {
         category.setSlug(request.getSlug());
         category.setDescription(request.getDescription());
         
-        return mapToResponse(repository.save(category));
+        ProductCategory saved = repository.save(category);
+        eventPublisher.publishEvent(new ContentChangedEvent("product-category", saved.getSlug()));
+        return mapToResponse(saved);
     }
 
     @Override
     @Transactional
     public ProductCategoryResponse updateCategory(Long id, ProductCategoryUpdateRequest request) {
         ProductCategory category = getEntityById(id);
-        if (!category.getSlug().equals(request.getSlug()) && repository.findBySlug(request.getSlug()).isPresent()) {
+        String oldSlug = category.getSlug();
+        boolean slugChanged = !oldSlug.equals(request.getSlug());
+        if (slugChanged && repository.findBySlug(request.getSlug()).isPresent()) {
             throw new DuplicateResourceException("Slug already exists");
         }
         category.setName(request.getName());
         category.setSlug(request.getSlug());
         category.setDescription(request.getDescription());
         
-        return mapToResponse(repository.save(category));
+        ProductCategory saved = repository.save(category);
+        eventPublisher.publishEvent(new ContentChangedEvent("product-category", saved.getSlug(), slugChanged ? oldSlug : null));
+        return mapToResponse(saved);
     }
 
     @Override
@@ -72,6 +82,7 @@ public class ProductCategoryServiceImpl implements ProductCategoryService {
     public void deleteCategory(Long id) {
         ProductCategory category = getEntityById(id);
         repository.delete(category);
+        eventPublisher.publishEvent(new ContentChangedEvent("product-category", category.getSlug()));
     }
 
     private ProductCategory getEntityById(Long id) {

@@ -22,7 +22,7 @@ public class ProductController {
         return service.getPublishedProducts(page, size, keyword, categorySlug);
     }
 
-    @GetMapping("/{slug}")
+    @GetMapping({"/slug/{slug}", "/{slug}"})
     public ProductDetailResponse getProductBySlug(@PathVariable String slug) {
         return service.getPublishedProductBySlug(slug);
     }

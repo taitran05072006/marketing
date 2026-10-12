@@ -111,6 +111,10 @@ public class PaymentServiceImpl implements PaymentService {
             Payment payment = paymentRepository.findByPaymentCode(String.valueOf(payosOrderCode))
                     .orElseThrow(() -> new ResourceNotFoundException("Payment not found for orderCode: " + payosOrderCode));
                     
+            if (payment.getStatus() == PaymentStatus.PAID || payment.getStatus() == PaymentStatus.FAILED) {
+                return; // Idempotent: Already processed
+            }
+
             Order order = payment.getOrder();
 
             if ("00".equals(webhookData.getCode()) || "success".equalsIgnoreCase(webhookData.getCode())) {

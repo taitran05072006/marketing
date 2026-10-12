@@ -23,7 +23,37 @@ public class AuthController {
     }
 
     @PostMapping("/login")
-    public LoginResponse login(@Valid @RequestBody LoginRequest request) {
-        return authService.login(request);
+    public org.springframework.http.ResponseEntity<LoginResponse> login(@Valid @RequestBody LoginRequest request) {
+        LoginResponse response = authService.login(request);
+        
+        org.springframework.http.ResponseCookie cookie = org.springframework.http.ResponseCookie.from("accessToken", response.getAccessToken())
+            .httpOnly(true)
+            .secure(true)
+            .path("/")
+            .maxAge(86400) // 1 day
+            .sameSite("Lax")
+            .build();
+            
+        // Optional: clear token from response body to prevent JS access
+        response.setAccessToken(""); 
+        
+        return org.springframework.http.ResponseEntity.ok()
+            .header(org.springframework.http.HttpHeaders.SET_COOKIE, cookie.toString())
+            .body(response);
+    }
+    
+    @PostMapping("/logout")
+    public org.springframework.http.ResponseEntity<Void> logout() {
+        org.springframework.http.ResponseCookie cookie = org.springframework.http.ResponseCookie.from("accessToken", "")
+            .httpOnly(true)
+            .secure(true)
+            .path("/")
+            .maxAge(0) // delete cookie
+            .sameSite("Lax")
+            .build();
+            
+        return org.springframework.http.ResponseEntity.ok()
+            .header(org.springframework.http.HttpHeaders.SET_COOKIE, cookie.toString())
+            .build();
     }
 }

@@ -15,11 +15,15 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 import java.util.stream.Collectors;
 
+import com.example.demo.event.ContentChangedEvent;
+import org.springframework.context.ApplicationEventPublisher;
+
 @Service
 @RequiredArgsConstructor
 public class ArticleCategoryServiceImpl implements ArticleCategoryService {
 
     private final ArticleCategoryRepository repository;
+    private final ApplicationEventPublisher eventPublisher;
 
     @Override
     public List<ArticleCategoryResponse> getAllCategories() {
@@ -51,6 +55,7 @@ public class ArticleCategoryServiceImpl implements ArticleCategoryService {
         category.setDescription(request.getDescription());
         
         ArticleCategory saved = repository.save(category);
+        eventPublisher.publishEvent(new ContentChangedEvent("article-category", saved.getSlug()));
         return mapToResponse(saved);
     }
 
@@ -58,7 +63,9 @@ public class ArticleCategoryServiceImpl implements ArticleCategoryService {
     @Transactional
     public ArticleCategoryResponse updateCategory(Long id, ArticleCategoryUpdateRequest request) {
         ArticleCategory category = getEntityById(id);
-        if (!category.getSlug().equals(request.getSlug()) && repository.findBySlug(request.getSlug()).isPresent()) {
+        String oldSlug = category.getSlug();
+        boolean slugChanged = !oldSlug.equals(request.getSlug());
+        if (slugChanged && repository.findBySlug(request.getSlug()).isPresent()) {
             throw new DuplicateResourceException("Slug already exists");
         }
         category.setName(request.getName());
@@ -66,6 +73,7 @@ public class ArticleCategoryServiceImpl implements ArticleCategoryService {
         category.setDescription(request.getDescription());
         
         ArticleCategory saved = repository.save(category);
+        eventPublisher.publishEvent(new ContentChangedEvent("article-category", saved.getSlug(), slugChanged ? oldSlug : null));
         return mapToResponse(saved);
     }
 
@@ -74,6 +82,7 @@ public class ArticleCategoryServiceImpl implements ArticleCategoryService {
     public void deleteCategory(Long id) {
         ArticleCategory category = getEntityById(id);
         repository.delete(category);
+        eventPublisher.publishEvent(new ContentChangedEvent("article-category", category.getSlug()));
     }
 
     private ArticleCategory getEntityById(Long id) {

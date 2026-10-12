@@ -60,6 +60,11 @@ public class Article {
     @Column(length = 500)
     private String metaDescription;
 
+    private String ogImage;
+
+    @Column(length = 500)
+    private String canonicalUrl;
+
     @Column(nullable = false)
     private LocalDateTime createdAt;
 

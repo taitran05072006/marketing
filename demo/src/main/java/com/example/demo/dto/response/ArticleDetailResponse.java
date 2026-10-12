@@ -16,8 +16,13 @@ public class ArticleDetailResponse {
     private String thumbnailUrl;
     private String thumbnailAlt;
     private String categoryName;
+    private String categorySlug;
     private String authorName;
     private String status;
+    private String metaTitle;
+    private String metaDescription;
+    private String ogImage;
+    private String canonicalUrl;
     private LocalDateTime publishedAt;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;

@@ -4,10 +4,13 @@ import com.example.demo.entity.product.Product;
 import com.example.demo.entity.product.ProductStatus;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
 import org.springframework.stereotype.Repository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.repository.query.Param;
 
+import java.util.List;
 import java.util.Optional;
 
 @Repository
@@ -35,4 +38,10 @@ public interface ProductRepository extends JpaRepository<Product, Long> {
     @Override
     @EntityGraph(attributePaths = {"category"})
     Page<Product> findAll(Pageable pageable);
+
+    @EntityGraph(attributePaths = {"category"})
+    Optional<Product> findBySlugAndStatus(String slug, ProductStatus status);
+
+    @Query("SELECT p FROM Product p WHERE p.status = :status ORDER BY p.updatedAt DESC")
+    List<Product> findAllByStatusForSitemap(@Param("status") ProductStatus status);
 }

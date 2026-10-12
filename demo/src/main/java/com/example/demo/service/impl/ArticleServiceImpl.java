@@ -33,6 +33,11 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
+import com.example.demo.entity.SlugRedirect;
+import com.example.demo.event.ContentChangedEvent;
+import com.example.demo.repository.SlugRedirectRepository;
+import org.springframework.context.ApplicationEventPublisher;
+
 @Service
 @RequiredArgsConstructor
 public class ArticleServiceImpl implements ArticleService {
@@ -42,6 +47,8 @@ public class ArticleServiceImpl implements ArticleService {
     private final UserRepository userRepository;
     private final ProductRepository productRepository;
     private final ArticleProductRepository articleProductRepository;
+    private final SlugRedirectRepository slugRedirectRepository;
+    private final ApplicationEventPublisher eventPublisher;
 
     @Override
     public PageResponse<ArticleResponse> getPublishedArticles(int page, int size, String keyword, String categorySlug) {
@@ -80,7 +87,6 @@ public class ArticleServiceImpl implements ArticleService {
         Page<Article> articlePage = articleRepository.findByStatusAndCategorySlug(ArticleStatus.PUBLISHED, slug, pageable);
         
         List<ArticleResponse> content = articlePage.getContent().stream()
-                .filter(a -> a.getStatus() == ArticleStatus.PUBLISHED )
                 .map(this::mapToResponse)
                 .collect(Collectors.toList());
                 
@@ -136,6 +142,8 @@ public class ArticleServiceImpl implements ArticleService {
         
         Article savedArticle = articleRepository.save(article);
         
+        eventPublisher.publishEvent(new ContentChangedEvent("article", savedArticle.getSlug(), null, category.getSlug()));
+        
         // Handle related products
         if (request.getProductIds() != null && !request.getProductIds().isEmpty()) {
             for (Long productId : request.getProductIds()) {
@@ -157,8 +165,10 @@ public class ArticleServiceImpl implements ArticleService {
     @Transactional
     public ArticleDetailResponse updateArticle(Long id, ArticleUpdateRequest request) {
         Article article = getEntityById(id);
+        String oldSlug = article.getSlug();
+        boolean slugChanged = !oldSlug.equals(request.getSlug());
         
-        if (!article.getSlug().equals(request.getSlug()) && articleRepository.findBySlug(request.getSlug()).isPresent()) {
+        if (slugChanged && articleRepository.findBySlug(request.getSlug()).isPresent()) {
             throw new DuplicateResourceException("Slug already exists");
         }
         
@@ -182,12 +192,17 @@ public class ArticleServiceImpl implements ArticleService {
         }
         
         Article savedArticle = articleRepository.save(article);
+
+        if (slugChanged) {
+            SlugRedirect redirect = new SlugRedirect();
+            redirect.setOldSlug(oldSlug);
+            redirect.setNewSlug(savedArticle.getSlug());
+            redirect.setEntityType("article");
+            redirect.setEntityId(savedArticle.getId());
+            slugRedirectRepository.save(redirect);
+        }
         
-        // Handle related products (delete old, add new for simplicity, or complex diff)
-        // Since we don't have bidirectional mapping exposed easily, let's just clear and add.
-        // Wait, ArticleProduct repository needs to delete by articleId
-        // Let's implement that in repository or just skip for now to save time
-        // Actually, let's keep it simple.
+        eventPublisher.publishEvent(new ContentChangedEvent("article", savedArticle.getSlug(), slugChanged ? oldSlug : null, category.getSlug()));
         
         return mapToDetailResponse(savedArticle);
     }
@@ -196,7 +211,9 @@ public class ArticleServiceImpl implements ArticleService {
     @Transactional
     public void deleteArticle(Long id) {
         Article article = getEntityById(id);
+        String categorySlug = article.getCategory() != null ? article.getCategory().getSlug() : null;
         articleRepository.delete(article);
+        eventPublisher.publishEvent(new ContentChangedEvent("article", article.getSlug(), null, categorySlug));
     }
 
     @Override
@@ -206,6 +223,8 @@ public class ArticleServiceImpl implements ArticleService {
         article.setStatus(ArticleStatus.PUBLISHED);
         article.setPublishedAt(LocalDateTime.now());
         articleRepository.save(article);
+        String categorySlug = article.getCategory() != null ? article.getCategory().getSlug() : null;
+        eventPublisher.publishEvent(new ContentChangedEvent("article", article.getSlug(), null, categorySlug));
     }
 
     @Override
@@ -214,6 +233,8 @@ public class ArticleServiceImpl implements ArticleService {
         Article article = getEntityById(id);
         article.setStatus(ArticleStatus.DRAFT);
         articleRepository.save(article);
+        String categorySlug = article.getCategory() != null ? article.getCategory().getSlug() : null;
+        eventPublisher.publishEvent(new ContentChangedEvent("article", article.getSlug(), null, categorySlug));
     }
     
     private Article getEntityById(Long id) {
@@ -232,6 +253,8 @@ public class ArticleServiceImpl implements ArticleService {
         res.setCategoryName(article.getCategory().getName());
         res.setAuthorName(article.getAuthor().getName());
         res.setStatus(article.getStatus().name());
+        res.setMetaTitle(article.getMetaTitle());
+        res.setMetaDescription(article.getMetaDescription());
         res.setPublishedAt(article.getPublishedAt());
         res.setCreatedAt(article.getCreatedAt());
         res.setUpdatedAt(article.getUpdatedAt());
@@ -248,8 +271,13 @@ public class ArticleServiceImpl implements ArticleService {
         res.setThumbnailUrl(article.getThumbnailUrl());
         res.setThumbnailAlt(article.getThumbnailAlt());
         res.setCategoryName(article.getCategory().getName());
+        res.setCategorySlug(article.getCategory().getSlug());
         res.setAuthorName(article.getAuthor().getName());
         res.setStatus(article.getStatus().name());
+        res.setMetaTitle(article.getMetaTitle());
+        res.setMetaDescription(article.getMetaDescription());
+        res.setOgImage(article.getOgImage());
+        res.setCanonicalUrl(article.getCanonicalUrl());
         res.setPublishedAt(article.getPublishedAt());
         res.setCreatedAt(article.getCreatedAt());
         res.setUpdatedAt(article.getUpdatedAt());

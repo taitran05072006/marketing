@@ -1,2 +1,47 @@
+# Environment variables — NEVER commit these
+.env
+.env.local
+.env.*.local
+
+# Node
+node_modules/
+.npm
+
+# Build outputs
+dist/
+.next/
+out/
+build/
+
+# Java/Maven
+target/
+*.class
+*.jar
+*.war
+
+# IDE
+.idea/
+.vscode/
+*.iml
+*.swp
+*.swo
+
+# OS
 .DS_Store
-demo/uploads/
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# SSL certificates
+nginx/ssl/*.pem
+nginx/ssl/*.key
+nginx/ssl/*.crt
+
+# Upload files (not for version control)
+demo/uploads/*.jpeg
+demo/uploads/*.jpg
+demo/uploads/*.png
+demo/uploads/*.gif
+demo/uploads/*.webp

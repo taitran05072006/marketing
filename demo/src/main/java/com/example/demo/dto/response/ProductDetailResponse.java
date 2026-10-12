@@ -16,9 +16,13 @@ public class ProductDetailResponse {
     private BigDecimal price;
     private Integer stock;
     private String categoryName;
+    private String categorySlug;
     private String status;
     private Boolean isFeatured;
     private List<String> imageUrls;
+    private String metaTitle;
+    private String metaDescription;
+    private String ogImage;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }

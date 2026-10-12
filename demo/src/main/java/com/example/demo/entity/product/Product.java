@@ -32,6 +32,16 @@ public class Product {
     @Column(columnDefinition = "TEXT")
     private String description;
 
+    private String metaTitle;
+
+    @Column(length = 500)
+    private String metaDescription;
+
+    private String ogImage;
+
+    @Column(length = 500)
+    private String canonicalUrl;
+
     @Column(nullable = false, precision = 15, scale = 2)
     private BigDecimal price;
 
@@ -48,6 +58,10 @@ public class Product {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "category_id", nullable = false)
     private ProductCategory category;
+
+    @Version
+    @Column(nullable = false)
+    private Long version = 0L;
 
     @Column(nullable = false)
     private LocalDateTime createdAt;

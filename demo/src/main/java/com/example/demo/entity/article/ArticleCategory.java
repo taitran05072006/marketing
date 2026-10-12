@@ -28,6 +28,11 @@ public class ArticleCategory {
     @Column(columnDefinition = "TEXT")
     private String description;
 
+    private String metaTitle;
+
+    @Column(length = 500)
+    private String metaDescription;
+
     @Column(nullable = false)
     private LocalDateTime createdAt;
 

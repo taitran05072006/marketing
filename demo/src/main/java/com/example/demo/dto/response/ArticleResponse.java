@@ -16,6 +16,8 @@ public class ArticleResponse {
     private String categoryName;
     private String authorName;
     private String status;
+    private String metaTitle;
+    private String metaDescription;
     private LocalDateTime publishedAt;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;

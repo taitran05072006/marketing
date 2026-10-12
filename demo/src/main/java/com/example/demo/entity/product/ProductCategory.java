@@ -28,6 +28,11 @@ public class ProductCategory {
     @Column(columnDefinition = "TEXT")
     private String description;
 
+    private String metaTitle;
+
+    @Column(length = 500)
+    private String metaDescription;
+
     private String imageUrl;
 
     @Column(nullable = false)

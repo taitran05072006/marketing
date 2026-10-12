@@ -24,6 +24,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.stream.Collectors;
+import com.example.demo.entity.SlugRedirect;
+import com.example.demo.event.ContentChangedEvent;
+import com.example.demo.repository.SlugRedirectRepository;
+import org.springframework.context.ApplicationEventPublisher;
 
 @Service
 @RequiredArgsConstructor
@@ -32,19 +36,22 @@ public class ProductServiceImpl implements ProductService {
     private final ProductRepository productRepository;
     private final ProductCategoryRepository categoryRepository;
     private final ProductImageRepository productImageRepository;
+    private final SlugRedirectRepository slugRedirectRepository;
+    private final ApplicationEventPublisher eventPublisher;
 
     @Override
     public PageResponse<ProductResponse> getPublishedProducts(int page, int size, String keyword, String categorySlug) {
         Pageable pageable = PageRequest.of(Math.max(0, page), Math.min(size, 100));
         Page<Product> productPage;
-        if (keyword != null && !keyword.isEmpty()) {
-            productPage = productRepository.findByNameContainingIgnoreCase(keyword, pageable);
+        if (categorySlug != null && !categorySlug.isEmpty()) {
+            productPage = productRepository.findByStatusAndCategorySlug(ProductStatus.ACTIVE, categorySlug, pageable);
+        } else if (keyword != null && !keyword.isEmpty()) {
+            productPage = productRepository.findByStatusAndNameContainingIgnoreCase(ProductStatus.ACTIVE, keyword, pageable);
         } else {
-            productPage = productRepository.findAll(pageable);
+            productPage = productRepository.findByStatus(ProductStatus.ACTIVE, pageable);
         }
         
         List<ProductResponse> content = productPage.getContent().stream()
-                .filter(p -> p.getStatus() == ProductStatus.ACTIVE)
                 .map(this::mapToResponse)
                 .collect(Collectors.toList());
                 
@@ -121,6 +128,8 @@ public class ProductServiceImpl implements ProductService {
         
         handleProductImages(savedProduct, request.getImageUrls());
         
+        eventPublisher.publishEvent(new ContentChangedEvent("product", savedProduct.getSlug(), null, category.getSlug()));
+        
         return mapToDetailResponse(savedProduct);
     }
 
@@ -128,8 +137,10 @@ public class ProductServiceImpl implements ProductService {
     @Transactional
     public ProductDetailResponse updateProduct(Long id, ProductUpdateRequest request) {
         Product product = getEntityById(id);
+        String oldSlug = product.getSlug();
+        boolean slugChanged = !oldSlug.equals(request.getSlug());
         
-        if (!product.getSlug().equals(request.getSlug()) && productRepository.findBySlug(request.getSlug()).isPresent()) {
+        if (slugChanged && productRepository.findBySlug(request.getSlug()).isPresent()) {
             throw new DuplicateResourceException("Slug already exists");
         }
         
@@ -151,8 +162,19 @@ public class ProductServiceImpl implements ProductService {
         }
         
         Product savedProduct = productRepository.save(product);
+
+        if (slugChanged) {
+            SlugRedirect redirect = new SlugRedirect();
+            redirect.setOldSlug(oldSlug);
+            redirect.setNewSlug(savedProduct.getSlug());
+            redirect.setEntityType("product");
+            redirect.setEntityId(savedProduct.getId());
+            slugRedirectRepository.save(redirect);
+        }
         
         handleProductImages(savedProduct, request.getImageUrls());
+        
+        eventPublisher.publishEvent(new ContentChangedEvent("product", savedProduct.getSlug(), slugChanged ? oldSlug : null, category.getSlug()));
         
         return mapToDetailResponse(savedProduct);
     }
@@ -161,8 +183,10 @@ public class ProductServiceImpl implements ProductService {
     @Transactional
     public void deleteProduct(Long id) {
         Product product = getEntityById(id);
+        String categorySlug = product.getCategory() != null ? product.getCategory().getSlug() : null;
         productImageRepository.deleteByProductId(id);
         productRepository.delete(product);
+        eventPublisher.publishEvent(new ContentChangedEvent("product", product.getSlug(), null, categorySlug));
     }
     
     private void handleProductImages(Product product, List<String> imageUrls) {
@@ -212,8 +236,12 @@ public class ProductServiceImpl implements ProductService {
         res.setPrice(product.getPrice());
         res.setStock(product.getStock());
         res.setCategoryName(product.getCategory().getName());
+        res.setCategorySlug(product.getCategory().getSlug());
         res.setStatus(product.getStatus().name());
         res.setIsFeatured(product.getIsFeatured());
+        res.setMetaTitle(product.getMetaTitle());
+        res.setMetaDescription(product.getMetaDescription());
+        res.setOgImage(product.getOgImage());
         res.setCreatedAt(product.getCreatedAt());
         res.setUpdatedAt(product.getUpdatedAt());
         
